@@ -1,70 +1,53 @@
 import os
 import cv2
 import numpy as np
+import pandas as pd
 from sklearn import svm
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import joblib
-import requests
-import zipfile
 from pathlib import Path
 
-# Simple dataset - we'll create synthetic data for common traffic signs
-# In a real scenario, you'd use GTSRB dataset
-class_names = [
-    "Stop Sign",
-    "Speed Limit",
-    "Yield Sign",
-    "No Entry",
-    "Pedestrian Crossing"
-]
+def load_class_names(csv_path="labels.csv"):
+    """Load class names from labels CSV file"""
+    df = pd.read_csv(csv_path)
+    # Create a dictionary mapping ClassId to Name
+    class_dict = dict(zip(df['ClassId'], df['Name']))
+    # Return as list ordered by ClassId
+    return [class_dict[i] for i in sorted(class_dict.keys())]
 
-def create_sample_dataset():
-    """Create a simple synthetic dataset for demonstration"""
-    print("Creating sample dataset...")
-    data_dir = Path("dataset")
-    data_dir.mkdir(exist_ok=True)
+def load_dataset(data_dir="traffic_Data/DATA"):
+    """Load dataset from traffic_Data/DATA folder structure"""
+    print(f"Loading dataset from {data_dir}...")
+    data_path = Path(data_dir)
+    
+    if not data_path.exists():
+        raise FileNotFoundError(f"Dataset directory '{data_dir}' not found!")
     
     X = []
     y = []
     
-    # Generate synthetic images for each class
-    for class_id in range(len(class_names)):
-        class_dir = data_dir / str(class_id)
-        class_dir.mkdir(exist_ok=True)
-        
-        # Create 50 sample images per class
-        for i in range(50):
-            # Create a simple image with different patterns per class
-            img = np.zeros((32, 32, 3), dtype=np.uint8)
-            
-            if class_id == 0:  # Stop sign - red octagon
-                cv2.circle(img, (16, 16), 12, (0, 0, 255), -1)
-            elif class_id == 1:  # Speed limit - circle
-                cv2.circle(img, (16, 16), 12, (255, 255, 255), 2)
-                cv2.putText(img, "50", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            elif class_id == 2:  # Yield - triangle
-                pts = np.array([[16, 5], [28, 28], [4, 28]], np.int32)
-                cv2.fillPoly(img, [pts], (0, 255, 255))
-            elif class_id == 3:  # No entry - red circle with white bar
-                cv2.circle(img, (16, 16), 12, (0, 0, 255), -1)
-                cv2.rectangle(img, (4, 14), (28, 18), (255, 255, 255), -1)
-            elif class_id == 4:  # Pedestrian
-                cv2.circle(img, (16, 10), 3, (255, 255, 255), -1)
-                cv2.line(img, (16, 13), (16, 22), (255, 255, 255), 2)
-            
-            # Add some noise
-            noise = np.random.randint(-30, 30, img.shape, dtype=np.int16)
-            img = np.clip(img.astype(np.int16) + noise, 0, 255).astype(np.uint8)
-            
-            # Save image
-            img_path = class_dir / f"{i}.png"
-            cv2.imwrite(str(img_path), img)
-            
-            X.append(img)
-            y.append(class_id)
+    # Get all class folders (0, 1, 2, ...)
+    class_folders = sorted([d for d in data_path.iterdir() if d.is_dir()], 
+                          key=lambda x: int(x.name))
     
-    print(f"Created {len(X)} sample images across {len(class_names)} classes")
+    for class_folder in class_folders:
+        class_id = int(class_folder.name)
+        
+        # Load all images from this class folder
+        image_files = list(class_folder.glob("*.png")) + \
+                     list(class_folder.glob("*.jpg")) + \
+                     list(class_folder.glob("*.jpeg"))
+        
+        print(f"Loading class {class_id}: {len(image_files)} images")
+        
+        for img_path in image_files:
+            img = cv2.imread(str(img_path))
+            if img is not None:
+                X.append(img)
+                y.append(class_id)
+    
+    print(f"Loaded {len(X)} images across {len(class_folders)} classes")
     return np.array(X), np.array(y)
 
 def preprocess_image(img):
@@ -80,8 +63,12 @@ def train_model():
     """Train SVM classifier on traffic signs"""
     print("Starting training process...")
     
-    # Create or load dataset
-    X, y = create_sample_dataset()
+    # Load class names from CSV
+    class_names = load_class_names("labels.csv")
+    print(f"Loaded {len(class_names)} class names from labels.csv")
+    
+    # Load dataset from traffic_Data/DATA
+    X, y = load_dataset("traffic_Data/DATA")
     
     # Preprocess all images
     print("Preprocessing images...")
